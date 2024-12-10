@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Language Learning Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Neo language learning</h1>
+        
+        <div class="input-section">
+            <div class="language-selector">
+                <div class="language-pair">
+                    <div>
+                        <label for="source-language-select">I speak</label>
+                        <select id="source-language-select">
+                            <option value="auto">🌐 Auto-detect</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="language-select">and I want to learn</label>
+                        <select id="language-select">
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <textarea id="input-text" rows="4" placeholder="Enter a conversation topic or a first sentence - or simply click Quick Generate for a random topic"></textarea>
+            
+            <div class="button-group">
+                <button id="generate-conversation" onclick="generateConversation()">Generate Conversation</button>
+                <button id="quick-generate" onclick="quickGenerate()">Quick Generate</button>
+            </div>
+        </div>
+
+        <div id="conversation-output" style="display: none;">
+            <h2>Generated Conversation</h2>
+            <div id="conversation-content"></div>
+        </div>
+
+        <div id="debug-console" class="debug-console">
+            <div class="debug-header">
+                <h3>Debug Console</h3>
+            </div>
+            <div id="debug-content"></div>
+            <div class="debug-buttons">
+                <button onclick="copyDebugConsole()">Copy</button>
+                <button onclick="clearDebugConsole()">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Replace this with your OpenAI API key
+        const OPENAI_API_KEY = 'YOUR_OPENAI_API_KEY';
+
+        function debugLog(message, type = 'info') {
+            const console = document.getElementById('debug-content');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = type;
+            
+            if (typeof message === 'object') {
+                message = JSON.stringify(message, null, 2);
+            }
+            
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            console.appendChild(logEntry);
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function clearDebugConsole() {
+            const console = document.getElementById('debug-content');
+            console.innerHTML = '';
+        }
+
+        function copyDebugConsole() {
+            const console = document.getElementById('debug-content');
+            const text = console.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const successMessage = document.getElementById('copy-success');
+                successMessage.style.display = 'inline';
+                setTimeout(() => {
+                    successMessage.style.display = 'none';
+                }, 2000);
+            });
+        }
+
+        async function makeOpenAIRequest(messages) {
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-3.5-turbo",
+                        messages: messages,
+                        temperature: 0.7,
+                        max_tokens: 800
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    debugLog('API Error: ' + errorText, 'error');
+                    throw new Error('API request failed: ' + errorText);
+                }
+
+                const data = await response.json();
+                if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+                    throw new Error('Invalid API response format');
+                }
+
+                return data.choices[0].message.content;
+            } catch (error) {
+                debugLog('API Error: ' + error.message, 'error');
+                throw error;
+            }
+        }
+
+        async function generateConversation() {
+            debugLog('Starting conversation generation...');
+            const inputText = document.getElementById('input-text').value;
+            const targetLanguage = document.getElementById('language-select').value;
+            const sourceLanguage = document.getElementById('source-language-select').value;
+            
+            if (!inputText) {
+                showError('Please enter a topic or message first.');
+                return;
+            }
+
+            debugLog(`Input: ${inputText} Source Language: ${sourceLanguage} Target Language: ${targetLanguage}`);
+            const generateButton = document.getElementById('generate-conversation');
+            const quickGenerateButton = document.getElementById('quick-generate');
+            generateButton.disabled = true;
+            quickGenerateButton.disabled = true;
+
+            try {
+                const messages = [
+                    {
+                        "role": "system",
+                        "content": `You are a conversation generator that creates natural, authentic dialogues in the target language. Your response must be ONLY valid JSON in this exact format:
+
+{"exchanges":[{"user":{"text":"message in target language","translation":"translation in source language"},"other":{"text":"response in target language","translation":"translation in source language"}}]}
+
+Rules:
+1. Generate exactly 3 exchanges
+2. The 'text' field MUST be in the target language
+3. The 'translation' field should be in the source language (or English if auto-detect)
+4. Use natural conversational language appropriate for the target language
+5. Keep responses concise but meaningful
+6. Return ONLY valid JSON - no other text
+
+Example (English to Croatian):
+{"exchanges":[
+  {"user":{"text":"Oprostite, gdje je autobusna stanica?","translation":"Excuse me, where is the bus station?"},
+   "other":{"text":"Autobusna stanica je dvije ulice dalje, pored pošte.","translation":"The bus station is two streets away, next to the post office."}},
+  {"user":{"text":"Koji autobus vozi do centra grada?","translation":"Which bus goes to the city center?"},
+   "other":{"text":"Autobus broj 5 vozi do centra svakih 15 minuta.","translation":"Bus number 5 goes to the center every 15 minutes."}},
+  {"user":{"text":"Hvala vam puno!","translation":"Thank you very much!"},
+   "other":{"text":"Nema na čemu! Sretan put!","translation":"You're welcome! Have a good trip!"}}
+]}`
+                    },
+                    {
+                        "role": "user",
+                        "content": `Generate a natural conversation in ${targetLanguage} about this topic: "${inputText}". 
+The source language is ${sourceLanguage === 'auto' ? 'English' : sourceLanguage}. 
+Include translations in ${sourceLanguage === 'auto' ? 'English' : sourceLanguage}. 
+IMPORTANT: Make sure all 'text' fields are in ${targetLanguage} and all 'translation' fields are in ${sourceLanguage === 'auto' ? 'English' : sourceLanguage}.`
+                    }
+                ];
+
+                debugLog('Making API request...');
+                const result = await makeOpenAIRequest(messages);
+                debugLog('API Response received');
+                
+                try {
+                    // Parse the JSON response
+                    const conversation = JSON.parse(result);
+                    
+                    // Validate the conversation structure
+                    if (!conversation.exchanges || !Array.isArray(conversation.exchanges)) {
+                        throw new Error('Invalid conversation structure');
+                    }
+
+                    // Display the conversation
+                    displayConversation(conversation);
+                    document.getElementById('conversation-output').style.display = 'block';
+                    
+                } catch (parseError) {
+                    debugLog('Failed to parse conversation: ' + parseError.message, 'error');
+                    debugLog('Raw response: ' + result, 'error');
+                    throw new Error('Failed to parse the generated conversation');
+                }
+            } catch (error) {
+                debugLog('Error: ' + error.message, 'error');
+                showError('Failed to generate conversation. Please try again.');
+            } finally {
+                generateButton.disabled = false;
+                quickGenerateButton.disabled = false;
+            }
+        }
+
+        function displayConversation(conversation) {
+            const container = document.getElementById('conversation-content');
+            container.innerHTML = '';
+            
+            conversation.exchanges.forEach((exchange, index) => {
+                // User message
+                const userDiv = document.createElement('div');
+                userDiv.className = 'message user';
+                const safeUserText = exchange.user.text.replace(/'/g, '\\\'').replace(/"/g, '\\"');
+                userDiv.innerHTML = `
+                    <div class="message-content">
+                        <div>
+                            <strong>You:</strong>
+                            <div class="message-text">${exchange.user.text}</div>
+                            <div class="translation">${exchange.user.translation}</div>
+                        </div>
+                        <button onclick="speak('${safeUserText}')" class="play-button">▶</button>
+                    </div>
+                `;
+                container.appendChild(userDiv);
+                
+                // Other person's message
+                const otherDiv = document.createElement('div');
+                otherDiv.className = 'message other';
+                const safeOtherText = exchange.other.text.replace(/'/g, '\\\'').replace(/"/g, '\\"');
+                otherDiv.innerHTML = `
+                    <div class="message-content">
+                        <div>
+                            <strong>Other:</strong>
+                            <div class="message-text">${exchange.other.text}</div>
+                            <div class="translation">${exchange.other.translation}</div>
+                        </div>
+                        <button onclick="speak('${safeOtherText}')" class="play-button">▶</button>
+                    </div>
+                `;
+                container.appendChild(otherDiv);
+            });
+        }
+
+        function displayResponse(response) {
+            const responseDiv = document.getElementById('output-text');
+            responseDiv.value = response;
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function disableButtons(disabled) {
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(button => button.disabled = disabled);
+        }
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        const originalConsole = {
+            log: console.log,
+            error: console.error,
+            warn: console.warn
+        };
+
+        console.log = (...args) => {
+            debugLog(args.join(' '), 'info');
+            originalConsole.log(...args);
+        };
+
+        console.error = (...args) => {
+            debugLog(args.join(' '), 'error');
+            originalConsole.error(...args);
+        };
+
+        console.warn = (...args) => {
+            debugLog(args.join(' '), 'warn');
+            originalConsole.warn(...args);
+        };
+
+        function showError(message) {
+            const dialog = document.createElement('dialog');
+            dialog.innerHTML = `
+                <div class="dialog-content">
+                    <h3>Error</h3>
+                    <p>${message}</p>
+                    <button id="error-ok-button">OK</button>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+            dialog.showModal();
+            document.getElementById('error-ok-button').addEventListener('click', () => {
+                dialog.close();
+            });
+        }
+
+        // Language codes mapping for speech synthesis
+        const languageVoiceMappings = {
+            'en': ['en-GB', 'en-US', 'en-AU'],     // English
+            'hr': ['hr-HR'],                        // Croatian
+            'es': ['es-ES', 'es-MX'],              // Spanish
+            'fr': ['fr-FR', 'fr-CA'],              // French
+            'de': ['de-DE'],                        // German
+            'it': ['it-IT'],                        // Italian
+            'pt': ['pt-PT', 'pt-BR'],              // Portuguese
+            'ru': ['ru-RU'],                        // Russian
+            'ja': ['ja-JP'],                        // Japanese
+            'ko': ['ko-KR'],                        // Korean
+            'zh': ['zh-CN', 'zh-TW'],              // Chinese
+            'ar': ['ar-SA'],                        // Arabic
+        };
+
+        // Function to update language selectors based on available voices
+        function updateLanguageSelectors() {
+            const availableVoiceCodes = window.speechSynthesis.getVoices()
+                .map(voice => voice.lang.toLowerCase());
+            
+            const supportedLanguages = Object.entries(languageVoiceMappings)
+                .filter(([lang, codes]) => 
+                    codes.some(code => availableVoiceCodes.includes(code.toLowerCase()))
+                )
+                .map(([lang]) => lang);
+
+            const sourceSelect = document.getElementById('source-language-select');
+            const targetSelect = document.getElementById('language-select');
+            
+            // Keep track of current selections
+            const currentSource = sourceSelect.value;
+            const currentTarget = targetSelect.value;
+
+            // Clear existing options (except Auto for source)
+            sourceSelect.innerHTML = '<option value="auto">🌐 Auto-detect</option>';
+            targetSelect.innerHTML = '';
+
+            // Add only supported languages
+            const languageNames = {
+                'en': '🇬🇧 English',
+                'hr': '🇭🇷 Croatian',
+                'es': '🇪🇸 Spanish',
+                'fr': '🇫🇷 French',
+                'de': '🇩🇪 German',
+                'it': '🇮🇹 Italian',
+                'pt': '🇵🇹 Portuguese',
+                'ru': '🇷🇺 Russian',
+                'ja': '🇯🇵 Japanese',
+                'ko': '🇰🇷 Korean',
+                'zh': '🇨🇳 Chinese',
+                'ar': '🇸🇦 Arabic'
+            };
+
+            supportedLanguages.forEach(lang => {
+                if (languageNames[lang]) {
+                    sourceSelect.add(new Option(languageNames[lang], lang));
+                    targetSelect.add(new Option(languageNames[lang], lang));
+                }
+            });
+
+            // Restore previous selections if they're still valid
+            if (supportedLanguages.includes(currentSource)) {
+                sourceSelect.value = currentSource;
+            }
+            if (supportedLanguages.includes(currentTarget)) {
+                targetSelect.value = currentTarget;
+            } else if (supportedLanguages.includes('en')) {
+                targetSelect.value = 'en'; // Default to English if available
+            }
+
+            // Log available languages
+            debugLog('Supported languages: ' + supportedLanguages.join(', '));
+        }
+
+        // Initialize voices and update selectors when voices are loaded
+        let voices = [];
+        function initVoices() {
+            voices = window.speechSynthesis.getVoices();
+            updateLanguageSelectors();
+        }
+
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = initVoices;
+        }
+
+        // Initial call to set up voices
+        initVoices();
+
+        const quickPhrases = {
+            'en': [
+                "Where is the nearest restaurant?",
+                "How do I get to the beach?",
+                "Can you recommend a good hotel?",
+                "What time does the bus arrive?",
+                "Where is the nearest ATM?",
+                "How much does this cost?",
+                "Can you help me find my way?",
+                "Where is the train station?",
+                "Is there a pharmacy nearby?",
+                "What's the best way to get to the city center?"
+            ],
+            'hr': [
+                "Gdje je najbliži restoran?",
+                "Kako doći do plaže?",
+                "Možete li preporučiti dobar hotel?",
+                "U koliko sati dolazi autobus?",
+                "Gdje je najbliži bankomat?",
+                "Koliko ovo košta?",
+                "Možete li mi pomoći pronaći put?",
+                "Gdje je željeznička stanica?",
+                "Ima li ljekarna u blizini?",
+                "Koji je najbolji način da dođem do centra grada?"
+            ]
+        };
+
+        function quickGenerate() {
+            const sourceLanguage = document.getElementById('source-language-select').value;
+            const phrases = quickPhrases[sourceLanguage] || quickPhrases['en']; // fallback to English if language not supported
+            const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+            document.getElementById('input-text').value = randomPhrase;
+            generateConversation();
+        }
+
+        // Update placeholder text when source language changes
+        document.getElementById('source-language-select').addEventListener('change', function() {
+            const sourceLanguage = this.value;
+            const inputText = document.getElementById('input-text');
+            if (sourceLanguage === 'auto') {
+                inputText.placeholder = "Enter your conversation topic in any language, or click Quick Generate for a random topic";
+            } else {
+                inputText.placeholder = `Enter your conversation topic in ${sourceLanguage === 'en' ? 'English' : 'Croatian'}, or click Quick Generate for a random topic`;
+            }
+            localStorage.setItem('sourceLang', this.value);
+        });
+
+        document.getElementById('language-select').addEventListener('change', function() {
+            localStorage.setItem('targetLang', this.value);
+        });
+
+        // Load saved language preferences
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedSourceLang = localStorage.getItem('sourceLang');
+            const savedTargetLang = localStorage.getItem('targetLang');
+            
+            if (savedSourceLang) {
+                document.getElementById('source-language-select').value = savedSourceLang;
+            }
+            if (savedTargetLang) {
+                document.getElementById('language-select').value = savedTargetLang;
+            }
+        });
+
+        function speak(text) {
+            debugLog('Speaking text: ' + text);
+            
+            // Cancel any ongoing speech
+            window.speechSynthesis.cancel();
+            
+            // Get the selected language
+            const targetLanguage = document.getElementById('language-select').value;
+            debugLog('Target language: ' + targetLanguage);
+            
+            // Get available voices
+            const voices = window.speechSynthesis.getVoices();
+            debugLog('Available voices: ' + voices.map(v => `${v.name} (${v.lang})`).join(', '));
+            
+            // Get preferred language codes for the target language
+            const preferredCodes = languageVoiceMappings[targetLanguage] || [targetLanguage];
+            debugLog('Preferred language codes: ' + preferredCodes.join(', '));
+            
+            // Try to find a voice for the selected language
+            let voice = null;
+            
+            // First try to find an exact match
+            for (const code of preferredCodes) {
+                voice = voices.find(v => v.lang.toLowerCase() === code.toLowerCase());
+                if (voice) {
+                    debugLog('Found exact match voice: ' + voice.name + ' (' + voice.lang + ')');
+                    break;
+                }
+            }
+            
+            // If no exact match, try to find a partial match
+            if (!voice) {
+                for (const code of preferredCodes) {
+                    voice = voices.find(v => v.lang.toLowerCase().startsWith(code.split('-')[0].toLowerCase()));
+                    if (voice) {
+                        debugLog('Found partial match voice: ' + voice.name + ' (' + voice.lang + ')');
+                        break;
+                    }
+                }
+            }
+            
+            // Create utterance
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // Set voice properties
+            if (voice) {
+                debugLog('Selected voice: ' + voice.name + ' (' + voice.lang + ')');
+                utterance.voice = voice;
+                utterance.lang = voice.lang;
+            } else {
+                debugLog('No voice found for language: ' + targetLanguage + '. Using default voice.', 'warn');
+                // If no matching voice found, try to at least set the language
+                utterance.lang = preferredCodes[0];
+            }
+            
+            // Set other properties
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            
+            // Add event handlers
+            utterance.onstart = () => debugLog('Started speaking');
+            utterance.onend = () => debugLog('Finished speaking');
+            utterance.onerror = (e) => debugLog('Speech error: ' + e.error, 'error');
+            
+            // Speak the text
+            window.speechSynthesis.speak(utterance);
+        }
+    </script>
+</body>
+</html>
