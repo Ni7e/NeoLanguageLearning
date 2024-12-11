@@ -640,10 +640,48 @@ dialog {
     }
 
     /* Settings button positioning */
+    .header {
+        padding: 15px;
+        position: relative;  /* Ensure relative positioning for absolute children */
+    }
+
+    .page-title {
+        font-size: 1.5em;
+        margin: 0;
+        width: 100%;
+        text-align: center;
+    }
+
+    .settings-dropdown {
+        position: absolute;  /* Keep it absolutely positioned */
+        right: 15px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: auto;  /* Reset width */
+        margin: 0;  /* Reset margin */
+    }
+
+    .settings-content {
+        position: absolute;
+        top: calc(100% + 10px);
+        right: 0;
+        width: 250px;
+        max-width: calc(100vw - 30px);
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+
+    /* Keep the arrow pointing to the settings button */
+    .settings-content::before {
+        right: 10px;
+    }
+
     #settings-button {
-        padding: 12px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 8px;
+        font-size: 1.3em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .speak-button {
@@ -846,7 +884,7 @@ dialog {
 
     .page-title {
         font-size: 1.5em;
-        padding-right: 40px; /* Make space for settings button */
+        margin: 0;
     }
 
     .settings-dropdown {
